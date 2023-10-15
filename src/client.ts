@@ -83,11 +83,6 @@ export type BuildArg = {
 };
 
 /**
- * A global cache volume identifier.
- */
-export type CacheID = string & { __CacheID: never };
-
-/**
  * Sharing mode of the cache volume.
  */
 export enum CacheSharingMode {
@@ -107,6 +102,11 @@ export enum CacheSharingMode {
    */
   Shared = "SHARED",
 }
+/**
+ * A global cache volume identifier.
+ */
+export type CacheVolumeID = string & { __CacheVolumeID: never };
+
 export type ContainerBuildOpts = {
   /**
    * Path to the Dockerfile to use.
@@ -439,7 +439,27 @@ export type ContainerID = string & { __ContainerID: never };
 export type DateTime = string & { __DateTime: never };
 
 export type DirectoryAsModuleOpts = {
+  /**
+   * An optional subpath of the directory which contains the module's source
+   * code.
+   *
+   * This is needed when the module code is in a subdirectory but requires
+   * parent directories to be loaded in order to execute. For example, the
+   * module source code may need a go.mod, project.toml, package.json, etc. file
+   * from a parent directory.
+   *
+   * If not set, the module source code is loaded from the root of the
+   * directory.
+   */
   sourceSubpath?: string;
+
+  /**
+   * A pre-built runtime container to use instead of building one from the
+   * source code. This is useful for bootstrapping.
+   *
+   * You should ignore this unless you're building a Dagger SDK.
+   */
+  runtime?: Container;
 };
 
 export type DirectoryDockerBuildOpts = {
@@ -565,6 +585,11 @@ export type FunctionWithArgOpts = {
   defaultValue?: JSON;
 };
 
+/**
+ * A reference to a FunctionArg.
+ */
+export type FunctionArgID = string & { __FunctionArgID: never };
+
 export type FunctionCallInput = {
   /**
    * The name of the argument to the function
@@ -581,6 +606,11 @@ export type FunctionCallInput = {
  * A reference to a Function.
  */
 export type FunctionID = string & { __FunctionID: never };
+
+/**
+ * A reference to GeneratedCode.
+ */
+export type GeneratedCodeID = string & { __GeneratedCodeID: never };
 
 export type GitRefTreeOpts = {
   sshKnownHosts?: string;
@@ -700,10 +730,6 @@ export type ClientHttpOpts = {
   experimentalServiceHost?: Container;
 };
 
-export type ClientModuleOpts = {
-  id?: ModuleID;
-};
-
 export type ClientPipelineOpts = {
   /**
    * Pipeline description.
@@ -718,10 +744,6 @@ export type ClientPipelineOpts = {
 
 export type ClientSocketOpts = {
   id?: SocketID;
-};
-
-export type ClientTypeDefOpts = {
-  id?: TypeDefID;
 };
 
 /**
@@ -811,25 +833,25 @@ export type __TypeFieldsOpts = {
  * A directory whose contents persist across runs.
  */
 export class CacheVolume extends BaseClient {
-  private readonly _id?: CacheID = undefined;
+  private readonly _id?: CacheVolumeID = undefined;
 
   /**
    * Constructor is used for internal usage only, do not create object from it.
    */
   constructor(
     parent?: { queryTree?: QueryTree[]; host?: string; sessionToken?: string },
-    _id?: CacheID
+    _id?: CacheVolumeID
   ) {
     super(parent);
 
     this._id = _id;
   }
-  async id(): Promise<CacheID> {
+  async id(): Promise<CacheVolumeID> {
     if (this._id) {
       return this._id;
     }
 
-    const response: Awaited<CacheID> = await computeQuery(
+    const response: Awaited<CacheVolumeID> = await computeQuery(
       [
         ...this._queryTree,
         {
@@ -856,6 +878,7 @@ export class Container extends BaseClient {
   private readonly _label?: string = undefined;
   private readonly _platform?: Platform = undefined;
   private readonly _publish?: string = undefined;
+  private readonly _shellEndpoint?: string = undefined;
   private readonly _stderr?: string = undefined;
   private readonly _stdout?: string = undefined;
   private readonly _sync?: ContainerID = undefined;
@@ -876,6 +899,7 @@ export class Container extends BaseClient {
     _label?: string,
     _platform?: Platform,
     _publish?: string,
+    _shellEndpoint?: string,
     _stderr?: string,
     _stdout?: string,
     _sync?: ContainerID,
@@ -893,6 +917,7 @@ export class Container extends BaseClient {
     this._label = _label;
     this._platform = _platform;
     this._publish = _publish;
+    this._shellEndpoint = _shellEndpoint;
     this._stderr = _stderr;
     this._stdout = _stdout;
     this._sync = _sync;
@@ -1459,6 +1484,30 @@ export class Container extends BaseClient {
       host: this.clientHost,
       sessionToken: this.sessionToken,
     });
+  }
+
+  /**
+   * Return a websocket endpoint that, if connected to, will start the container with a TTY streamed
+   * over the websocket.
+   *
+   * Primarily intended for internal use with the dagger CLI.
+   */
+  async shellEndpoint(): Promise<string> {
+    if (this._shellEndpoint) {
+      return this._shellEndpoint;
+    }
+
+    const response: Awaited<string> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "shellEndpoint",
+        },
+      ],
+      this.client
+    );
+
+    return response;
   }
 
   /**
@@ -2310,15 +2359,20 @@ export class Directory extends BaseClient {
 
   /**
    * Load the directory as a Dagger module
+   * @param opts.sourceSubpath An optional subpath of the directory which contains the module's source
+   * code.
    *
-   * sourceSubpath is an optional parameter that, if set, points to a subpath of this
-   * directory that contains the module's source code. This is needed when the module
-   * code is in a subdirectory but requires parent directories to be loaded in order
-   * to execute. For example, the module source code may need a go.mod, project.toml,
-   * package.json, etc. file from a parent directory.
+   * This is needed when the module code is in a subdirectory but requires
+   * parent directories to be loaded in order to execute. For example, the
+   * module source code may need a go.mod, project.toml, package.json, etc. file
+   * from a parent directory.
    *
-   * If sourceSubpath is not set, the module source code is loaded from the root of
-   * the directory.
+   * If not set, the module source code is loaded from the root of the
+   * directory.
+   * @param opts.runtime A pre-built runtime container to use instead of building one from the
+   * source code. This is useful for bootstrapping.
+   *
+   * You should ignore this unless you're building a Dagger SDK.
    */
   asModule(opts?: DirectoryAsModuleOpts): Module_ {
     return new Module_({
@@ -3027,9 +3081,7 @@ export class Function_ extends BaseClient {
    */
   async args(): Promise<FunctionArg[]> {
     type args = {
-      defaultValue: JSON;
-      description: string;
-      name: string;
+      id: FunctionArgID;
     };
 
     const response: Awaited<args[]> = await computeQuery(
@@ -3039,7 +3091,7 @@ export class Function_ extends BaseClient {
           operation: "args",
         },
         {
-          operation: "defaultValue description name",
+          operation: "id",
         },
       ],
       this.client
@@ -3053,9 +3105,7 @@ export class Function_ extends BaseClient {
             host: this.clientHost,
             sessionToken: this.sessionToken,
           },
-          r.defaultValue,
-          r.description,
-          r.name
+          r.id
         )
     );
   }
@@ -3205,6 +3255,7 @@ export class Function_ extends BaseClient {
  * argument passed at function call time.
  */
 export class FunctionArg extends BaseClient {
+  private readonly _id?: FunctionArgID = undefined;
   private readonly _defaultValue?: JSON = undefined;
   private readonly _description?: string = undefined;
   private readonly _name?: string = undefined;
@@ -3214,15 +3265,38 @@ export class FunctionArg extends BaseClient {
    */
   constructor(
     parent?: { queryTree?: QueryTree[]; host?: string; sessionToken?: string },
+    _id?: FunctionArgID,
     _defaultValue?: JSON,
     _description?: string,
     _name?: string
   ) {
     super(parent);
 
+    this._id = _id;
     this._defaultValue = _defaultValue;
     this._description = _description;
     this._name = _name;
+  }
+
+  /**
+   * The ID of the argument
+   */
+  async id(): Promise<FunctionArgID> {
+    if (this._id) {
+      return this._id;
+    }
+
+    const response: Awaited<FunctionArgID> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "id",
+        },
+      ],
+      this.client
+    );
+
+    return response;
   }
 
   /**
@@ -3512,6 +3586,132 @@ export class FunctionCallArgValue extends BaseClient {
     );
 
     return response;
+  }
+}
+
+export class GeneratedCode extends BaseClient {
+  private readonly _id?: GeneratedCodeID = undefined;
+
+  /**
+   * Constructor is used for internal usage only, do not create object from it.
+   */
+  constructor(
+    parent?: { queryTree?: QueryTree[]; host?: string; sessionToken?: string },
+    _id?: GeneratedCodeID
+  ) {
+    super(parent);
+
+    this._id = _id;
+  }
+  async id(): Promise<GeneratedCodeID> {
+    if (this._id) {
+      return this._id;
+    }
+
+    const response: Awaited<GeneratedCodeID> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "id",
+        },
+      ],
+      this.client
+    );
+
+    return response;
+  }
+
+  /**
+   * The directory containing the generated code
+   */
+  code(): Directory {
+    return new Directory({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "code",
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * List of paths to mark generated in version control (i.e. .gitattributes)
+   */
+  async vcsGeneratedPaths(): Promise<string[]> {
+    const response: Awaited<string[]> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "vcsGeneratedPaths",
+        },
+      ],
+      this.client
+    );
+
+    return response;
+  }
+
+  /**
+   * List of paths to ignore in version control (i.e. .gitignore)
+   */
+  async vcsIgnoredPaths(): Promise<string[]> {
+    const response: Awaited<string[]> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "vcsIgnoredPaths",
+        },
+      ],
+      this.client
+    );
+
+    return response;
+  }
+
+  /**
+   * Set the list of paths to mark generated in version control
+   */
+  withVCSGeneratedPaths(paths: string[]): GeneratedCode {
+    return new GeneratedCode({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "withVCSGeneratedPaths",
+          args: { paths },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Set the list of paths to ignore in version control
+   */
+  withVCSIgnoredPaths(paths: string[]): GeneratedCode {
+    return new GeneratedCode({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "withVCSIgnoredPaths",
+          args: { paths },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Call the provided function with current GeneratedCode.
+   *
+   * This is useful for reusability and readability by not breaking the calling chain.
+   */
+  with(arg: (param: GeneratedCode) => GeneratedCode) {
+    return arg(this);
   }
 }
 
@@ -3811,6 +4011,7 @@ export class Module_ extends BaseClient {
   private readonly _description?: string = undefined;
   private readonly _name?: string = undefined;
   private readonly _sdk?: string = undefined;
+  private readonly _sdkRuntime?: string = undefined;
   private readonly _serve?: Void = undefined;
   private readonly _sourceDirectorySubPath?: string = undefined;
 
@@ -3823,6 +4024,7 @@ export class Module_ extends BaseClient {
     _description?: string,
     _name?: string,
     _sdk?: string,
+    _sdkRuntime?: string,
     _serve?: Void,
     _sourceDirectorySubPath?: string
   ) {
@@ -3832,6 +4034,7 @@ export class Module_ extends BaseClient {
     this._description = _description;
     this._name = _name;
     this._sdk = _sdk;
+    this._sdkRuntime = _sdkRuntime;
     this._serve = _serve;
     this._sourceDirectorySubPath = _sourceDirectorySubPath;
   }
@@ -3930,6 +4133,22 @@ export class Module_ extends BaseClient {
   }
 
   /**
+   * The code generated by the SDK's runtime
+   */
+  generatedCode(): GeneratedCode {
+    return new GeneratedCode({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "generatedCode",
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
    * The name of the module
    */
   async name(): Promise<string> {
@@ -3997,6 +4216,27 @@ export class Module_ extends BaseClient {
         ...this._queryTree,
         {
           operation: "sdk",
+        },
+      ],
+      this.client
+    );
+
+    return response;
+  }
+
+  /**
+   * The SDK runtime module image ref.
+   */
+  async sdkRuntime(): Promise<string> {
+    if (this._sdkRuntime) {
+      return this._sdkRuntime;
+    }
+
+    const response: Awaited<string> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "sdkRuntime",
         },
       ],
       this.client
@@ -4371,11 +4611,10 @@ export class Client extends BaseClient {
   }
 
   /**
-   * Loads a container from ID.
+   * Creates a scratch container or loads one by ID.
    *
-   * Null ID returns an empty container (scratch).
-   * Optional platform argument initializes new containers to execute and publish as that platform.
-   * Platform defaults to that of the builder's host.
+   * Optional platform argument initializes new containers to execute and publish
+   * as that platform. Platform defaults to that of the builder's host.
    */
   container(opts?: ClientContainerOpts): Container {
     return new Container({
@@ -4443,7 +4682,7 @@ export class Client extends BaseClient {
   }
 
   /**
-   * Load a directory by ID. No argument produces an empty directory.
+   * Creates an empty directory or loads one by ID.
    */
   directory(opts?: ClientDirectoryOpts): Directory {
     return new Directory({
@@ -4461,6 +4700,7 @@ export class Client extends BaseClient {
 
   /**
    * Loads a file by ID.
+   * @deprecated Use loadFileFromID instead.
    */
   file(id: FileID): File {
     return new File({
@@ -4477,15 +4717,33 @@ export class Client extends BaseClient {
   }
 
   /**
-   * Load a function by ID
+   * Create a function.
    */
-  function_(id: FunctionID): Function_ {
+  function_(name: string, returnType: TypeDef): Function_ {
     return new Function_({
       queryTree: [
         ...this._queryTree,
         {
           operation: "function",
-          args: { id },
+          args: { name, returnType },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Create a code generation result, given a directory containing the generated
+   * code.
+   */
+  generatedCode(code: Directory): GeneratedCode {
+    return new GeneratedCode({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "generatedCode",
+          args: { code },
         },
       ],
       host: this.clientHost,
@@ -4551,15 +4809,15 @@ export class Client extends BaseClient {
   }
 
   /**
-   * Load a module by ID, or create a new one if id is unset.
+   * Load a CacheVolume from its ID.
    */
-  module_(opts?: ClientModuleOpts): Module_ {
-    return new Module_({
+  loadCacheVolumeFromID(id: CacheVolumeID): CacheVolume {
+    return new CacheVolume({
       queryTree: [
         ...this._queryTree,
         {
-          operation: "module",
-          args: { ...opts },
+          operation: "loadCacheVolumeFromID",
+          args: { id },
         },
       ],
       host: this.clientHost,
@@ -4568,15 +4826,184 @@ export class Client extends BaseClient {
   }
 
   /**
-   * Create a new function from the provided definition.
+   * Loads a container from an ID.
    */
-  newFunction(name: string, returnType: TypeDef): Function_ {
+  loadContainerFromID(id: ContainerID): Container {
+    return new Container({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadContainerFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a Directory from its ID.
+   */
+  loadDirectoryFromID(id: DirectoryID): Directory {
+    return new Directory({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadDirectoryFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a File from its ID.
+   */
+  loadFileFromID(id: FileID): File {
+    return new File({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadFileFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a function argument by ID.
+   */
+  loadFunctionArgFromID(id: FunctionArgID): FunctionArg {
+    return new FunctionArg({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadFunctionArgFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a function by ID.
+   */
+  loadFunctionFromID(id: FunctionID): Function_ {
     return new Function_({
       queryTree: [
         ...this._queryTree,
         {
-          operation: "newFunction",
-          args: { name, returnType },
+          operation: "loadFunctionFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a GeneratedCode by ID.
+   */
+  loadGeneratedCodeFromID(id: GeneratedCodeID): GeneratedCode {
+    return new GeneratedCode({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadGeneratedCodeFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a module by ID.
+   */
+  loadModuleFromID(id: ModuleID): Module_ {
+    return new Module_({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadModuleFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a Secret from its ID.
+   */
+  loadSecretFromID(id: SecretID): Secret {
+    return new Secret({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadSecretFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a Socket from its ID.
+   */
+  loadSocketFromID(id: SocketID): Socket {
+    return new Socket({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadSocketFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Load a TypeDef by ID.
+   */
+  loadTypeDefFromID(id: TypeDefID): TypeDef {
+    return new TypeDef({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "loadTypeDefFromID",
+          args: { id },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    });
+  }
+
+  /**
+   * Create a new module.
+   */
+  module_(): Module_ {
+    return new Module_({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "module",
         },
       ],
       host: this.clientHost,
@@ -4606,6 +5033,7 @@ export class Client extends BaseClient {
 
   /**
    * Loads a secret from its ID.
+   * @deprecated Use loadSecretFromID instead
    */
   secret(id: SecretID): Secret {
     return new Secret({
@@ -4643,6 +5071,7 @@ export class Client extends BaseClient {
 
   /**
    * Loads a socket by its ID.
+   * @deprecated Use loadSocketFromID instead.
    */
   socket(opts?: ClientSocketOpts): Socket {
     return new Socket({
@@ -4657,13 +5086,16 @@ export class Client extends BaseClient {
       sessionToken: this.sessionToken,
     });
   }
-  typeDef(opts?: ClientTypeDefOpts): TypeDef {
+
+  /**
+   * Create a new TypeDef.
+   */
+  typeDef(): TypeDef {
     return new TypeDef({
       queryTree: [
         ...this._queryTree,
         {
           operation: "typeDef",
-          args: { ...opts },
         },
       ],
       host: this.clientHost,
