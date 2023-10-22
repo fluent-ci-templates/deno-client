@@ -17,7 +17,7 @@ export {
   EngineSessionConnectionTimeoutError,
   NotAwaitedRequestError,
   ERROR_CODES,
-} from "https://esm.sh/@dagger.io/dagger@0.8.4";
+} from "https://esm.sh/@dagger.io/dagger@0.8.8";
 
 import * as tar from "https://cdn.jsdelivr.net/gh/tsirysndr/tar@v0.1.1/mod.ts";
 
